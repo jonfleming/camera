@@ -1,4 +1,3 @@
-
 #!/usr/bin/python3
 
 # Mostly copied from https://picamera.readthedocs.io/en/release-1.13/recipes2.html
@@ -31,7 +30,7 @@ function zoom() {
 <body>
 <h1>Picamera2 MJPEG Streaming Demo</h1>
 <button onclick=\"zoom()\">Zoom Out</button><br/>
-<img src="stream.mjpg" width="1280" height="720" />
+<img src="stream.mjpg" width="640" height="480" />
 </body>
 </html>
 """
@@ -103,8 +102,8 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
 
 picam2 = Picamera2()
-scale_width = 3240
-scale_height = 2430
+scale_width = 1280  # Reduced for Pi Zero
+scale_height = 960  # Reduced for Pi Zero
 sensor_modes = picam2.sensor_modes
 
 def increment_zoom():
@@ -115,12 +114,14 @@ for mode in sensor_modes:
     
 native_size = sensor_modes[1]['size']  # Usually the largest available
 print(f"Native sensor size: {native_size}")
-selected_mode = sensor_modes[3] #
+
+# Use a lower resolution sensor mode for Pi Zero
+# Try mode 0 or 1 instead of 3 for lower memory usage
+selected_mode = sensor_modes[0]  # Changed from 3 to 0
 sensor_width, sensor_height = selected_mode['size']
 
-# Configure video with a smaller output resolution to fit buffer
-output_resolution = (5184, 3888)  # Adjust as needed for your buffer
-#output_resolution = (640, 480)  # Adjust as needed for your buffer
+# Much smaller output resolution for Pi Zero's limited memory
+output_resolution = (640, 480)  # Reduced significantly for Pi Zero
 config = picam2.create_video_configuration(
     main={"size": output_resolution, "format": 'XRGB8888'},    
     raw=selected_mode
@@ -129,7 +130,7 @@ config = picam2.create_video_configuration(
 picam2.configure(config)
 output = StreamingOutput()
 picam2.start_recording(JpegEncoder(), FileOutput(output))
-picam2.set_controls({"ScalerCrop": (0, 0, scale_width, scale_height )})
+picam2.set_controls({"ScalerCrop": (0, 0, scale_width, scale_height)})
 
 try:
     address = ('', 8000)
