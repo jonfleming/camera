@@ -107,7 +107,19 @@ scale_height = 960  # Reduced for Pi Zero
 sensor_modes = picam2.sensor_modes
 
 def increment_zoom():
-    pass
+    global current_crop
+    # Get the sensor's native size
+    native_width, native_height = sensor_modes[1]['size']  # Usually the largest available
+    # Increase the crop size by 10% each time, but not beyond the native size
+    x, y, w, h = current_crop
+    # Calculate new width and height, up to the native size
+    new_w = min(int(w * 1.1), native_width)
+    new_h = min(int(h * 1.1), native_height)
+    # Center the crop
+    new_x = max(0, (native_width - new_w) // 2)
+    new_y = max(0, (native_height - new_h) // 2)
+    current_crop = (new_x, new_y, new_w, new_h)
+    picam2.set_controls({"ScalerCrop": current_crop})
 
 for mode in sensor_modes:
     print("Mode", mode)
@@ -131,6 +143,9 @@ picam2.configure(config)
 output = StreamingOutput()
 picam2.start_recording(JpegEncoder(), FileOutput(output))
 picam2.set_controls({"ScalerCrop": (0, 0, scale_width, scale_height)})
+
+# Track the current crop globally for zooming
+current_crop = (0, 0, scale_width, scale_height)
 
 try:
     address = ('', 8000)
