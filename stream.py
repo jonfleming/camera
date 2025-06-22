@@ -102,17 +102,16 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
 
 picam2 = Picamera2()
-scale_width = 1280  # Reduced for Pi Zero
-scale_height = 960  # Reduced for Pi Zero
 sensor_modes = picam2.sensor_modes
+selected_mode = sensor_modes[0]  # Use a lower resolution sensor mode for Pi Zero
+sensor_width, sensor_height = selected_mode['size']
 
 def increment_zoom():
     global current_crop
-    # Get the sensor's native size
-    native_width, native_height = sensor_modes[1]['size']  # Usually the largest available
-    # Increase the crop size by 10% each time, but not beyond the native size
+    # Use the selected sensor mode's size for cropping
+    native_width, native_height = sensor_width, sensor_height
     x, y, w, h = current_crop
-    # Calculate new width and height, up to the native size
+    # Increase the crop size by 10% each time, but not beyond the native size
     new_w = min(int(w * 1.1), native_width)
     new_h = min(int(h * 1.1), native_height)
     # Center the crop
@@ -123,29 +122,20 @@ def increment_zoom():
 
 for mode in sensor_modes:
     print("Mode", mode)
-    
-native_size = sensor_modes[1]['size']  # Usually the largest available
-print(f"Native sensor size: {native_size}")
-
-# Use a lower resolution sensor mode for Pi Zero
-# Try mode 0 or 1 instead of 3 for lower memory usage
-selected_mode = sensor_modes[0]  # Changed from 3 to 0
-sensor_width, sensor_height = selected_mode['size']
+print(f"Selected sensor mode size: {sensor_width}x{sensor_height}")
 
 # Much smaller output resolution for Pi Zero's limited memory
 output_resolution = (640, 480)  # Reduced significantly for Pi Zero
 config = picam2.create_video_configuration(
-    main={"size": output_resolution, "format": 'XRGB8888'},    
+    main={"size": output_resolution, "format": 'XRGB8888'},
     raw=selected_mode
-    )
+)
 
 picam2.configure(config)
 output = StreamingOutput()
+current_crop = (0, 0, sensor_width, sensor_height)
 picam2.start_recording(JpegEncoder(), FileOutput(output))
-picam2.set_controls({"ScalerCrop": (0, 0, scale_width, scale_height)})
-
-# Track the current crop globally for zooming
-current_crop = (0, 0, scale_width, scale_height)
+picam2.set_controls({"ScalerCrop": current_crop})
 
 try:
     address = ('', 8000)
