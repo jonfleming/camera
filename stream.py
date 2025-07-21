@@ -19,8 +19,14 @@ PAGE = """\
 <head>
 <title>picamera2 MJPEG streaming demo</title>
 <script>
-function zoom() {
-    fetch('/zoom', {method: 'POST'})
+function zoomIn() {
+    fetch('/zoom-in', {method: 'POST'})
+        .then(response => {
+            if (!response.ok) alert('Zoom failed');
+        });
+}
+function zoomOut() {
+    fetch('/zoom-out', {method: 'POST'})
         .then(response => {
             if (!response.ok) alert('Zoom failed');
         });
@@ -29,8 +35,9 @@ function zoom() {
 </head>
 <body>
 <h1>Picamera2 MJPEG Streaming Demo</h1>
-<button onclick=\"zoom()\">Zoom Out</button><br/>
-<img src="stream.mjpg" width="640" height="480" />
+<button onclick=\"zoomIn()\">Zoom In</button>
+<button onclick=\"zoomOut()\">Zoom Out</button><br/>
+<img src="stream.mjpg" width="1280" height="720" />
 </body>
 </html>
 """
@@ -88,8 +95,12 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        if self.path == '/zoom':
+        if self.path == '/zoom-in':
             increment_zoom()
+            self.send_response(204)
+            self.end_headers()
+        elif self.path == '/zoom-out':
+            decrement_zoom()
             self.send_response(204)
             self.end_headers()
         else:
@@ -102,44 +113,64 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
 
 picam2 = Picamera2()
-sensor_modes = picam2.sensor_modes
-selected_mode = sensor_modes[0]  # Use a lower resolution sensor mode for Pi Zero
-sensor_width, sensor_height = selected_mode['size']
+
+# Global zoom variables
+current_zoom = 0
+zoom_steps = [(0, 0, 4656, 3496),      # Full sensor
+              (582, 437, 3492, 2622),   # 25% crop
+              (1164, 874, 2328, 1748),  # 50% crop
+              (1746, 1311, 1164, 874)]  # 75% crop
 
 def increment_zoom():
-    global current_crop
-    # Use the selected sensor mode's size for cropping
-    native_width, native_height = sensor_width, sensor_height
-    x, y, w, h = current_crop
-    # Increase the crop size by 10% each time, but not beyond the native size
-    new_w = min(int(w * 1.1), native_width)
-    new_h = min(int(h * 1.1), native_height)
-    # Center the crop
-    new_x = max(0, (native_width - new_w) // 2)
-    new_y = max(0, (native_height - new_h) // 2)
-    current_crop = (new_x, new_y, new_w, new_h)
-    picam2.set_controls({"ScalerCrop": current_crop})
+    global current_zoom
+    current_zoom = (current_zoom + 1) % len(zoom_steps)
+    crop = zoom_steps[current_zoom]
+    picam2.set_controls({"ScalerCrop": crop})
+    print(f"Zoom level {current_zoom}: crop {crop}")
 
+def decrement_zoom():
+    global current_zoom
+    current_zoom = (current_zoom - 1) % len(zoom_steps)
+    crop = zoom_steps[current_zoom]
+    picam2.set_controls({"ScalerCrop": crop})
+    print(f"Zoom level {current_zoom}: crop {crop}")
+
+# Print available sensor modes
+sensor_modes = picam2.sensor_modes
+for i, mode in enumerate(sensor_modes):
+    print(f"Mode {i}: {mode}")
+
+# Find the full resolution mode (4656x3496)
+full_res_mode = None
 for mode in sensor_modes:
-    print("Mode", mode)
-print(f"Selected sensor mode size: {sensor_width}x{sensor_height}")
+    if mode['size'] == (4656, 3496):
+        full_res_mode = mode
+        break
 
-# Much smaller output resolution for Pi Zero's limited memory
-output_resolution = (640, 480)  # Reduced significantly for Pi Zero
+if full_res_mode is None:
+    print("Warning: Full resolution mode not found, using mode 0")
+    full_res_mode = sensor_modes[0]
+
+print(f"Using sensor mode: {full_res_mode}")
+
+# Configure for full sensor resolution with reasonable streaming output
 config = picam2.create_video_configuration(
-    main={"size": output_resolution, "format": 'XRGB8888'},
-    raw=selected_mode
+    main={"size": (1920, 1440), "format": 'XRGB8888'},  # 4:3 aspect ratio output
+    raw=full_res_mode
 )
 
 picam2.configure(config)
 output = StreamingOutput()
-current_crop = (0, 0, sensor_width, sensor_height)
 picam2.start_recording(JpegEncoder(), FileOutput(output))
-picam2.set_controls({"ScalerCrop": current_crop})
+
+# Start with full sensor view (no cropping)
+picam2.set_controls({"ScalerCrop": (0, 0, 4656, 3496)})
 
 try:
     address = ('', 8000)
     server = StreamingServer(address, StreamingHandler)
+    print("Starting server at http://localhost:8000")
+    print("Press Ctrl+C to stop")
     server.serve_forever()
 finally:
     picam2.stop_recording()
